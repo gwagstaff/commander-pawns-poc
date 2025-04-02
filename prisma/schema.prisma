@@ -14,18 +14,6 @@ datasource db {
     url      = env("DATABASE_URL")
 }
 
-model Post {
-    id        Int      @id @default(autoincrement())
-    name      String
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-
-    createdBy   User   @relation(fields: [createdById], references: [id])
-    createdById String
-
-    @@index([name])
-}
-
 // Necessary for Next auth
 model Account {
     id                       String  @id @default(cuid())
@@ -62,7 +50,13 @@ model User {
     image         String?
     accounts      Account[]
     sessions      Session[]
-    posts         Post[]
+    
+    // Game-specific relations
+    commanderGames Game[]   @relation("CommanderToGame")
+    pawnGameAssignments GamePawn[]
+    pawnBattles   Battle[]  @relation("PawnToBattle")
+    createdAt     DateTime  @default(now())
+    updatedAt     DateTime  @updatedAt
 }
 
 model VerificationToken {
@@ -71,4 +65,91 @@ model VerificationToken {
     expires    DateTime
 
     @@unique([identifier, token])
+}
+
+// Game Models
+model Game {
+    id            String    @id @default(cuid())
+    name          String
+    status        String    @default("WAITING") // WAITING, ACTIVE, COMPLETED
+    maxCommanders Int       @default(4)
+    maxPawns      Int       @default(100)
+    mapType       String    @default("CLASSIC")
+    commanders    User[]    @relation("CommanderToGame")
+    pawnsInGame   GamePawn[]
+    territories   Territory[]
+    battles       Battle[]
+    createdAt     DateTime  @default(now())
+    updatedAt     DateTime  @updatedAt
+}
+
+model GamePawn {
+    id            String    @id @default(cuid())
+    gameId        String
+    game          Game      @relation(fields: [gameId], references: [id])
+    userId        String
+    user          User      @relation(fields: [userId], references: [id])
+    commanderId   String    // ID of the commander whose army they joined
+    createdAt     DateTime  @default(now())
+
+    @@unique([gameId, userId]) // A user can only be one pawn per game
+}
+
+model Territory {
+    id            String    @id @default(cuid())
+    name          String
+    gameId        String
+    game          Game      @relation(fields: [gameId], references: [id])
+    ownerId       String?   // Commander User ID, null = neutral
+    troops        Int       @default(5)
+    xPosition     Float     // For map rendering
+    yPosition     Float
+    createdAt     DateTime  @default(now())
+    updatedAt     DateTime  @updatedAt
+}
+
+model Battle {
+    id            String    @id @default(cuid())
+    gameId        String
+    game          Game      @relation(fields: [gameId], references: [id])
+    attackingTerritoryId String
+    defendingTerritoryId String
+    attackingCommanderId String
+    defendingCommanderId String
+    pawns         User[]    @relation("PawnToBattle")
+    status        String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+    battlefield   Battlefield?
+    winnerId      String?   // Commander User ID who won
+    createdAt     DateTime  @default(now())
+    updatedAt     DateTime  @updatedAt
+}
+
+model Battlefield {
+    id            String    @id @default(cuid())
+    battleId      String    @unique
+    battle        Battle    @relation(fields: [battleId], references: [id])
+    width         Int       @default(10)
+    height        Int       @default(10)
+    terrain       Json      // POC: Simple 2D array ['PLAIN', 'FOREST', 'HILL']
+    units         Unit[]
+    currentRound  Int       @default(0)
+    timePerRound  Int       @default(20) // seconds
+    commanderData Json?     // e.g., { commanderId1: { cp: 10 }, commanderId2: { cp: 10 } }
+    createdAt     DateTime  @default(now())
+    updatedAt     DateTime  @updatedAt
+}
+
+model Unit {
+    id            String    @id @default(cuid())
+    battlefieldId String
+    battlefield   Battlefield @relation(fields: [battlefieldId], references: [id])
+    type          String    // INFANTRY, HEAVY, RANGED (POC)
+    commanderId   String    // User ID of the commander this unit belongs to
+    controlledBy  String?   // User ID of the Pawn controlling, null = AI
+    xPosition     Int
+    yPosition     Int
+    health        Int       @default(100)
+    nextAction    Json?     // Action for next round processing
+    createdAt     DateTime  @default(now())
+    updatedAt     DateTime  @updatedAt
 }
