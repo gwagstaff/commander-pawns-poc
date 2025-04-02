@@ -81,12 +81,25 @@ function BattleUnit({ unit, isSelected, onSelect }: {
 }) {
   // Calculate ship orientation based on velocity or planned movement
   const shipRotation = unit.plannedActions?.moveTarget
-    ? [0, Math.atan2(
-        unit.plannedActions.moveTarget[0] - unit.position[0],
-        unit.plannedActions.moveTarget[2] - unit.position[2]
-      ), 0] as [number, number, number]
+    ? [
+        Math.asin((unit.plannedActions.moveTarget[1] - unit.position[1]) / 
+          Math.sqrt(
+            Math.pow(unit.plannedActions.moveTarget[0] - unit.position[0], 2) +
+            Math.pow(unit.plannedActions.moveTarget[1] - unit.position[1], 2) +
+            Math.pow(unit.plannedActions.moveTarget[2] - unit.position[2], 2)
+          )),
+        Math.atan2(
+          unit.plannedActions.moveTarget[0] - unit.position[0],
+          unit.plannedActions.moveTarget[2] - unit.position[2]
+        ),
+        0
+      ] as [number, number, number]
     : unit.velocity && unit.velocity.some(v => v !== 0)
-      ? [0, Math.atan2(unit.velocity[0], unit.velocity[2]), 0] as [number, number, number]
+      ? [
+          Math.asin(unit.velocity[1] / Math.sqrt(unit.velocity[0] * unit.velocity[0] + unit.velocity[1] * unit.velocity[1] + unit.velocity[2] * unit.velocity[2])),
+          Math.atan2(unit.velocity[0], unit.velocity[2]),
+          0
+        ] as [number, number, number]
       : unit.rotation;
 
   return (
@@ -199,172 +212,207 @@ function DirectionalControl({
   selectedAngle,
   onPreview,
 }: { 
-  onSelectDirection: (angle: number | null) => void;
-  selectedAngle: number | null;
-  onPreview: (angle: number | null) => void;
+  onSelectDirection: (direction: { x: number, y: number, z: number } | null) => void;
+  selectedAngle: { x: number, y: number, z: number } | null;
+  onPreview: (direction: { x: number, y: number, z: number } | null) => void;
 }) {
   const controlSize = 120;
   const centerPoint = controlSize / 2;
-  const [previewAngle, setPreviewAngle] = useState<number | null>(null);
-  const [verticalSpeed, setVerticalSpeed] = useState<number>(0);
+  const [isDraggingMain, setIsDraggingMain] = useState(false);
+  const [isDraggingVertical, setIsDraggingVertical] = useState(false);
+  const [mainPosition, setMainPosition] = useState<{ x: number, y: number } | null>(null);
+  const [verticalPosition, setVerticalPosition] = useState<number>(0);
 
-  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const calculateDirectionVector = (
+    mainPos: { x: number, y: number } | null,
+    verticalPos: number
+  ) => {
+    if (!mainPos) return null;
+
+    // Calculate horizontal magnitude (distance from center)
+    const horizontalMagnitude = Math.min(
+      Math.sqrt(mainPos.x * mainPos.x + mainPos.y * mainPos.y) / (controlSize / 2),
+      1
+    );
+
+    // Map vertical position from [-1, 1] range
+    const normalizedVertical = Math.max(-1, Math.min(1, verticalPos));
+    
+    // Calculate the direction vector components
+    return {
+      // X is right/left on the horizontal control
+      x: (mainPos.x / (controlSize / 2)),
+      // Y comes from the vertical slider
+      y: normalizedVertical,
+      // Z is up/down on the horizontal control (inverted because positive Z is forward)
+      z: -(mainPos.y / (controlSize / 2))
+    };
+  };
+
+  const handleMainMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left - centerPoint;
     const y = e.clientY - rect.top - centerPoint;
     const distance = Math.sqrt(x * x + y * y);
     
-    // Only register clicks within the circle
     if (distance <= controlSize / 2) {
-      const angle = Math.atan2(y, x);
-      onSelectDirection(angle);
+      setIsDraggingMain(true);
+      const newPos = { x, y };
+      setMainPosition(newPos);
+      const direction = calculateDirectionVector(newPos, verticalPosition);
+      if (direction) onSelectDirection(direction);
     }
   };
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMainMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDraggingMain) return;
+    
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left - centerPoint;
     const y = e.clientY - rect.top - centerPoint;
     const distance = Math.sqrt(x * x + y * y);
     
-    // Only preview if within the circle
     if (distance <= controlSize / 2) {
-      const angle = Math.atan2(y, x);
-      setPreviewAngle(angle);
-      onPreview(angle);
-    } else {
-      setPreviewAngle(null);
-      onPreview(null);
+      const newPos = { x, y };
+      setMainPosition(newPos);
+      const direction = calculateDirectionVector(newPos, verticalPosition);
+      if (direction) onPreview(direction);
     }
+  };
+
+  const handleVerticalMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = ((e.clientY - rect.top) / controlSize) * 2 - 1;
+    setIsDraggingVertical(true);
+    setVerticalPosition(-y);
+    const direction = calculateDirectionVector(mainPosition, -y);
+    if (direction) onSelectDirection(direction);
+  };
+
+  const handleVerticalMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDraggingVertical) return;
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = ((e.clientY - rect.top) / controlSize) * 2 - 1;
+    setVerticalPosition(-y);
+    const direction = calculateDirectionVector(mainPosition, -y);
+    if (direction) onPreview(direction);
+  };
+
+  const handleMouseUp = () => {
+    setIsDraggingMain(false);
+    setIsDraggingVertical(false);
   };
 
   const handleMouseLeave = () => {
-    setPreviewAngle(null);
+    setIsDraggingMain(false);
+    setIsDraggingVertical(false);
     onPreview(null);
   };
 
-  const handleVerticalControl = (speed: number) => {
-    setVerticalSpeed(speed);
-    // Convert vertical speed to angle (up = -90°, down = 90°)
-    const angle = speed > 0 ? -Math.PI/2 : speed < 0 ? Math.PI/2 : null;
-    onSelectDirection(angle);
-  };
-
-  const renderDirectionIndicator = () => {
-    if (selectedAngle === null) return null;
-    const radius = controlSize / 2 - 10;
-    const x = Math.cos(selectedAngle) * radius + centerPoint;
-    const y = Math.sin(selectedAngle) * radius + centerPoint;
-
-    return (
-      <div 
-        className="absolute w-3 h-3 bg-blue-500 rounded-full transform -translate-x-1.5 -translate-y-1.5"
-        style={{ left: `${x}px`, top: `${y}px` }}
-      />
-    );
-  };
-
-  const renderPreviewIndicator = () => {
-    if (previewAngle === null) return null;
-    const radius = controlSize / 2 - 10;
-    const x = Math.cos(previewAngle) * radius + centerPoint;
-    const y = Math.sin(previewAngle) * radius + centerPoint;
-
-    return (
-      <div 
-        className="absolute w-2 h-2 bg-blue-300 rounded-full transform -translate-x-1 -translate-y-1"
-        style={{ left: `${x}px`, top: `${y}px` }}
-      />
-    );
-  };
-
-  const renderSpeedRings = () => {
-    const rings = [0.25, 0.5, 0.75, 1];
-    return rings.map((speed) => (
-      <div
-        key={speed}
-        className="absolute border border-blue-500/20 rounded-full"
-        style={{
-          width: `${controlSize * speed}px`,
-          height: `${controlSize * speed}px`,
-          left: `${centerPoint - (controlSize * speed) / 2}px`,
-          top: `${centerPoint - (controlSize * speed) / 2}px`,
-        }}
-      />
-    ));
-  };
-
   return (
-    <div className="flex flex-col items-center space-y-4">
-      {/* Vertical controls */}
-      <div className="flex flex-col space-y-2">
-        <button
-          onClick={() => handleVerticalControl(1)}
-          className={`w-8 h-8 rounded-full flex items-center justify-center ${
-            verticalSpeed === 1 ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'
-          }`}
+    <div className="flex items-start space-x-4">
+      {/* Main movement orb (XZ plane) */}
+      <div className="flex flex-col items-center">
+        <div className="text-xs text-gray-400 mb-1">Horizontal Movement</div>
+        <div 
+          className="relative bg-gray-800 rounded-full cursor-pointer"
+          style={{ width: controlSize, height: controlSize }}
+          onMouseDown={handleMainMouseDown}
+          onMouseMove={handleMainMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
         >
-          ↑
-        </button>
-        <button
-          onClick={() => handleVerticalControl(0)}
-          className={`w-8 h-8 rounded-full flex items-center justify-center ${
-            verticalSpeed === 0 ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'
-          }`}
-        >
-          •
-        </button>
-        <button
-          onClick={() => handleVerticalControl(-1)}
-          className={`w-8 h-8 rounded-full flex items-center justify-center ${
-            verticalSpeed === -1 ? 'bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'
-          }`}
-        >
-          ↓
-        </button>
+          {/* Background with grid */}
+          <div className="absolute inset-0 rounded-full overflow-hidden">
+            {/* Concentric circles */}
+            {[0.25, 0.5, 0.75, 1].map((radius) => (
+              <div
+                key={`circle-${radius}`}
+                className="absolute border border-blue-500/20 rounded-full"
+                style={{
+                  width: `${controlSize * radius}px`,
+                  height: `${controlSize * radius}px`,
+                  left: `${centerPoint - (controlSize * radius) / 2}px`,
+                  top: `${centerPoint - (controlSize * radius) / 2}px`,
+                }}
+              />
+            ))}
+            {/* Radial lines */}
+            {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+              <div
+                key={`line-${angle}`}
+                className="absolute w-px h-1/2 bg-blue-500/20 origin-bottom"
+                style={{
+                  left: `${centerPoint}px`,
+                  bottom: `${centerPoint}px`,
+                  transform: `rotate(${angle}deg)`,
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Cardinal directions */}
+          <div className="absolute inset-0">
+            <div className="absolute top-2 left-1/2 -translate-x-1/2 text-blue-400 text-xs font-bold">N</div>
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 text-blue-400 text-xs font-bold">S</div>
+            <div className="absolute left-2 top-1/2 -translate-y-1/2 text-blue-400 text-xs font-bold">W</div>
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-400 text-xs font-bold">E</div>
+          </div>
+
+          {/* Center point */}
+          <div className="absolute left-1/2 top-1/2 w-2 h-2 bg-blue-500 rounded-full transform -translate-x-1 -translate-y-1" />
+
+          {/* Direction indicator */}
+          {mainPosition && (
+            <div 
+              className="absolute w-3 h-3 bg-blue-500 rounded-full transform -translate-x-1.5 -translate-y-1.5 pointer-events-none"
+              style={{
+                left: `${mainPosition.x + centerPoint}px`,
+                top: `${mainPosition.y + centerPoint}px`,
+              }}
+            />
+          )}
+        </div>
       </div>
 
-      {/* Horizontal control */}
-      <div 
-        className="relative bg-gray-800 rounded-full cursor-pointer"
-        style={{ width: controlSize, height: controlSize }}
-        onClick={handleClick}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      >
-        {/* Speed rings */}
-        {renderSpeedRings()}
-        
-        {/* Direction markers */}
-        <div className="absolute inset-0">
-          {/* North indicator triangle */}
-          <div className="absolute left-1/2 transform -translate-x-1/2 -top-3">
-            <div className="w-0 h-0 border-l-[8px] border-l-transparent border-b-[12px] border-b-blue-500 border-r-[8px] border-r-transparent" />
+      {/* Vertical movement control */}
+      <div className="flex flex-col items-center">
+        <div className="text-xs text-gray-400 mb-1">Vertical Movement</div>
+        <div 
+          className="relative bg-gray-800 rounded-lg cursor-pointer"
+          style={{ width: 40, height: controlSize }}
+          onMouseDown={handleVerticalMouseDown}
+          onMouseMove={handleVerticalMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+        >
+          {/* Background with markers */}
+          <div className="absolute inset-0">
+            {[-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75].map((pos) => (
+              <div
+                key={`marker-${pos}`}
+                className="absolute left-0 right-0 h-px bg-blue-500/20"
+                style={{ top: `${(pos + 1) * 50}%` }}
+              />
+            ))}
           </div>
-          
-          {/* Cardinal directions */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-gray-400 text-xs font-bold">N</div>
-          </div>
-          <div className="absolute inset-0 flex items-center justify-end pr-2">
-            <div className="text-gray-400 text-xs font-bold">E</div>
-          </div>
-          <div className="absolute inset-0 flex items-center justify-start pl-2">
-            <div className="text-gray-400 text-xs font-bold">W</div>
-          </div>
-          <div className="absolute inset-0 flex items-end justify-center pb-1">
-            <div className="text-gray-400 text-xs font-bold">S</div>
-          </div>
+
+          {/* Center line */}
+          <div className="absolute left-0 right-0 top-1/2 h-px bg-blue-500/40" />
+
+          {/* Vertical position indicator */}
+          <div 
+            className="absolute left-0 right-0 h-2 bg-blue-500 rounded-full transform -translate-y-1"
+            style={{
+              top: `${((1 - verticalPosition) * 50)}%`,
+            }}
+          />
+
+          {/* Labels */}
+          <div className="absolute -left-6 top-0 text-blue-400 text-xs">Up</div>
+          <div className="absolute -left-8 bottom-0 text-blue-400 text-xs">Down</div>
         </div>
-        
-        {/* Center point */}
-        <div className="absolute left-1/2 top-1/2 w-2 h-2 bg-gray-500 rounded-full transform -translate-x-1 -translate-y-1" />
-        
-        {/* Selected direction indicator */}
-        {renderDirectionIndicator()}
-        
-        {/* Preview direction indicator */}
-        {renderPreviewIndicator()}
       </div>
     </div>
   );
@@ -378,22 +426,21 @@ function BattleControls({
   onSpeedSelect,
 }: { 
   selectedUnit: BattleUnit | null;
-  onPlanMove: (angle: number | null, speed: number) => void;
+  onPlanMove: (direction: { x: number, y: number, z: number } | null, speed: number) => void;
   onPlanAttack: (targetId: string, weaponMode: WeaponMode) => void;
   selectedSpeed: number;
   onSpeedSelect: (speed: number) => void;
 }) {
-  const [selectedAngle, setSelectedAngle] = useState<number | null>(null);
+  const [selectedDirection, setSelectedDirection] = useState<{ x: number, y: number, z: number } | null>(null);
 
-  const handleDirectionSelect = (angle: number | null) => {
-    setSelectedAngle(angle);
-    onPlanMove(angle, selectedSpeed);
+  const handleDirectionSelect = (direction: { x: number, y: number, z: number } | null) => {
+    setSelectedDirection(direction);
+    onPlanMove(direction, selectedSpeed);
   };
 
-  const handleDirectionPreview = (angle: number | null) => {
-    // Preview the movement without committing to it
-    if (angle !== null) {
-      onPlanMove(angle, selectedSpeed);
+  const handleDirectionPreview = (direction: { x: number, y: number, z: number } | null) => {
+    if (direction !== null) {
+      onPlanMove(direction, selectedSpeed);
     }
   };
 
@@ -442,7 +489,7 @@ function BattleControls({
           {/* Directional Control */}
           <DirectionalControl
             onSelectDirection={handleDirectionSelect}
-            selectedAngle={selectedAngle}
+            selectedAngle={selectedDirection}
             onPreview={handleDirectionPreview}
           />
         </div>
@@ -503,11 +550,19 @@ export function WEGOBattle({
             const updatedUnits = prev.units.map(unit => {
               if (!unit.plannedActions?.moveTarget) return unit;
 
-              // Calculate movement vector
+              // Calculate movement vector in world space
               const dx = unit.plannedActions.moveTarget[0] - unit.position[0];
               const dy = unit.plannedActions.moveTarget[1] - unit.position[1];
               const dz = unit.plannedActions.moveTarget[2] - unit.position[2];
               const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+              if (distance === 0) {
+                return {
+                  ...unit,
+                  velocity: [0, 0, 0] as [number, number, number],
+                  plannedActions: undefined
+                } as BattleUnit;
+              }
 
               // Calculate new velocity based on acceleration and max speed
               const targetSpeed = (unit.plannedActions.moveSpeed ?? 1) * unit.maxSpeed;
@@ -528,8 +583,8 @@ export function WEGOBattle({
                 ...unit,
                 position: newPosition,
                 velocity: newVelocity,
-                plannedActions: undefined // Clear planned actions after execution
-              };
+                plannedActions: undefined
+              } as BattleUnit;
             });
 
             return {
@@ -551,25 +606,33 @@ export function WEGOBattle({
     return () => clearInterval(timer);
   }, []);
 
-  const handlePlanMove = useCallback((angle: number | null, speed: number) => {
-    if (!selectedUnit) return;
+  const handlePlanMove = useCallback((direction: { x: number, y: number, z: number } | null, speed: number) => {
+    if (!selectedUnit || !direction) return;
 
-    // Calculate target position based on angle and speed
+    const distance = speed * selectedUnit.maxSpeed;
+    
+    // Normalize the direction vector to ensure consistent movement speed
+    const length = Math.sqrt(
+      direction.x * direction.x + 
+      direction.y * direction.y + 
+      direction.z * direction.z
+    );
+
+    if (length === 0) return;
+
+    // Normalize the direction vector
+    const normalizedDirection = {
+      x: direction.x / length,
+      y: direction.y / length,
+      z: direction.z / length
+    };
+
+    // Calculate target position using normalized direction
+    // The movement is always relative to the world coordinates, not the ship's orientation
     const targetPosition: [number, number, number] = [
-      // For vertical movement (angle = ±π/2), we only move in Y
-      angle === -Math.PI/2 ? selectedUnit.position[0] : // Up
-      angle === Math.PI/2 ? selectedUnit.position[0] :  // Down
-      selectedUnit.position[0] + Math.sin(angle ?? 0) * speed * selectedUnit.maxSpeed, // Horizontal X
-      
-      // For vertical movement, we move in Y
-      angle === -Math.PI/2 ? selectedUnit.position[1] + speed * selectedUnit.maxSpeed : // Up
-      angle === Math.PI/2 ? selectedUnit.position[1] - speed * selectedUnit.maxSpeed :  // Down
-      selectedUnit.position[1], // Horizontal Y
-      
-      // For vertical movement (angle = ±π/2), we only move in Z
-      angle === -Math.PI/2 ? selectedUnit.position[2] : // Up
-      angle === Math.PI/2 ? selectedUnit.position[2] :  // Down
-      selectedUnit.position[2] + Math.cos(angle ?? 0) * speed * selectedUnit.maxSpeed, // Horizontal Z
+      selectedUnit.position[0] + normalizedDirection.x * distance,
+      selectedUnit.position[1] + normalizedDirection.y * distance,
+      selectedUnit.position[2] + normalizedDirection.z * distance
     ];
 
     setBattle(prev => ({
@@ -582,12 +645,14 @@ export function WEGOBattle({
                 ...unit.plannedActions, 
                 moveTarget: targetPosition,
                 moveSpeed: speed 
-              }
-            }
+              },
+              // Reset velocity when planning new movement
+              velocity: [0, 0, 0] as [number, number, number]
+            } as BattleUnit
           : unit
       ),
     }));
-  }, [selectedUnit, selectedSpeed]);
+  }, [selectedUnit]);
 
   const handlePlanAttack = useCallback((targetId: string, weaponMode: WeaponMode) => {
     if (!selectedUnit) return;
