@@ -296,23 +296,34 @@ model Unit {
 
 ### Battle System (`WEGOBattle.tsx`)
 - WEGO turn structure with Planning (15s) and Animation (5s) phases
-- Basic unit representation with health/shields display
-- Movement planning with simple directional controls
-- Weapon system selection (Lasers/Missiles)
+- Enhanced 3D movement control system:
+  - Dual control interface with horizontal and vertical movement
+  - Main Movement Orb for XZ-plane control with:
+    - Visual speed rings (25%, 50%, 75%, 100%)
+    - Cardinal direction indicators (N, S, E, W)
+    - Real-time movement preview
+    - Normalized vector-based movement
+  - Vertical Movement Slider for Y-axis control with:
+    - Elevation markers and labels
+    - Smooth up/down control
+  - Speed selection buttons (25%, 50%, 75%, 100%)
+  - Movement preview lines and target indicators
+- World-space movement calculations ensuring consistent behavior across turns
+- Proper velocity and position updates during animation phase
+- Basic weapon systems (Lasers/Missiles)
 - Turn counter and phase timer
-- Unit selection and basic control interface
+- Unit selection and control interface
 
 ### Next Implementation Priorities
-1. WebSocket integration for real-time battle updates
-2. Server-side battle resolution logic
-3. Proper unit movement with physics
-4. Enhanced weapon systems and effects
-5. Commander ability implementation
-6. Formation controls and AI behavior
+1. Add inertia and momentum to movement system
+2. Implement proper collision detection
+3. Add weapon range and damage calculations
+4. Enhance battle synchronization
+5. Implement AI behavior
+6. Add commander abilities
 
 ### Known Limitations
-- Movement is currently simplified without proper physics
-- Weapon systems lack proper range/damage calculations
+- Movement is now vector-based but still lacks inertia/momentum
 - No collision detection implemented
 - Battle resolution is not properly synchronized
 - AI opponents not yet implemented
